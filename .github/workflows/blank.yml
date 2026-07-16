@@ -7,6 +7,10 @@ on:
         description: 'IMG_URL (recovery.img 或带 recovery 的 boot.img)'
         required: true
         default: ''
+      BUILD_PROP_URL:
+        description: '可选：build.prop 直链（如果镜像缺少必要属性）'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -30,38 +34,54 @@ jobs:
         echo "DOWNLOADED_FILE=$(ls *.img 2>/dev/null | head -n1)" >> $GITHUB_ENV
         ls -l
 
-    - name: Inspect image (diagnostic)
+    - name: Inject external build.prop if provided
+      if: github.event.inputs.BUILD_PROP_URL != ''
       run: |
         IMG="${{ env.DOWNLOADED_FILE }}"
         if [ -z "$IMG" ]; then
-          echo "❌ No .img file found. Please check your URL."
+          echo "❌ 未找到 .img 文件。"
           exit 1
         fi
-        echo "🔍 Inspecting $IMG ..."
-        file "$IMG"
-        # 使用 abootimg 解包 kernel 和 ramdisk
-        abootimg -x "$IMG" || echo "⚠️ abootimg failed to extract, but we'll continue."
-        if [ -f initramfs.img ]; then
-          mkdir ramdisk
-          cd ramdisk
-          gunzip -c ../initramfs.img | cpio -i 2>/dev/null || true
-          cd ..
-          echo "📂 Ramdisk contents (first 20 files):"
-          find ramdisk -type f | head -20
-          echo "--- Build.prop search ---"
-          find ramdisk -name "build.prop" -exec grep -H -E "ro.product.(system.)?device|ro.product.name|ro.product.model" {} \; || echo "❌ No build.prop with required properties found."
-        else
-          echo "⚠️ No initramfs.img extracted – this may not be a standard boot/recovery image."
+        echo "🔄 正在下载外部 build.prop：${{ github.event.inputs.BUILD_PROP_URL }}"
+        wget -O build.prop "${{ github.event.inputs.BUILD_PROP_URL }}"
+        if [ ! -s build.prop ]; then
+          echo "❌ 下载的 build.prop 为空或失败。"
+          exit 1
         fi
-        echo "--- End of inspection ---"
+        echo "📦 正在解包镜像（abootimg）..."
+        abootimg -x "$IMG"
+        if [ ! -f initramfs.img ]; then
+          echo "❌ 解包失败：未提取到 initramfs.img。"
+          exit 1
+        fi
+        mkdir ramdisk
+        cd ramdisk
+        gunzip -c ../initramfs.img | cpio -idmv 2>/dev/null || true
+        # 将 build.prop 复制到根目录和 system/ 下（twrpdtgen 会搜索这些位置）
+        cp ../build.prop .
+        mkdir -p system
+        cp ../build.prop system/
+        echo "✅ build.prop 已注入到 ramdisk。"
+        # 重新打包 ramdisk
+        find . | cpio -o -H newc | gzip > ../new-initramfs.img
+        cd ..
+        # 重新打包完整镜像
+        abootimg --create new.img -f bootimg.cfg -k kernel -r new-initramfs.img
+        if [ ! -f new.img ]; then
+          echo "❌ 重新打包镜像失败。"
+          exit 1
+        fi
+        # 用新镜像替换原文件
+        echo "DOWNLOADED_FILE=new.img" >> $GITHUB_ENV
+        echo "✅ 新镜像已生成：new.img，将用于生成设备树。"
 
     - name: Start build
       run: |
         if [ -z "${{ env.DOWNLOADED_FILE }}" ]; then
-          echo "❌ No image file available to process."
+          echo "❌ 没有可用的镜像文件。"
           exit 1
         fi
-        echo "▶️ Generating device tree using ${{ env.DOWNLOADED_FILE }}"
+        echo "▶️ 正在使用镜像：${{ env.DOWNLOADED_FILE }} 生成设备树..."
         python3 -m twrpdtgen -o dt/ "${{ env.DOWNLOADED_FILE }}"
 
     - name: ZIP device tree
