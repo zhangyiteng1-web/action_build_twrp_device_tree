@@ -50,23 +50,26 @@ jobs:
         fi
         echo "📦 正在解包镜像（abootimg）..."
         abootimg -x "$IMG"
-        if [ ! -f initramfs.img ]; then
-          echo "❌ 解包失败：未提取到 initramfs.img。"
+        # abootimg 生成的是 initrd.img（不是 initramfs.img）
+        RAMDISK_FILE="initrd.img"
+        if [ ! -f "$RAMDISK_FILE" ]; then
+          echo "❌ 解包失败：未提取到 $RAMDISK_FILE。"
           exit 1
         fi
         mkdir ramdisk
         cd ramdisk
-        gunzip -c ../initramfs.img | cpio -idmv 2>/dev/null || true
+        # 解压 ramdisk（通常是 gzip 压缩的 cpio 归档）
+        gunzip -c ../"$RAMDISK_FILE" | cpio -idmv 2>/dev/null || true
         # 将 build.prop 复制到根目录和 system/ 下（twrpdtgen 会搜索这些位置）
         cp ../build.prop .
         mkdir -p system
         cp ../build.prop system/
         echo "✅ build.prop 已注入到 ramdisk。"
         # 重新打包 ramdisk
-        find . | cpio -o -H newc | gzip > ../new-initramfs.img
+        find . | cpio -o -H newc | gzip > ../new-initrd.img
         cd ..
         # 重新打包完整镜像
-        abootimg --create new.img -f bootimg.cfg -k kernel -r new-initramfs.img
+        abootimg --create new.img -f bootimg.cfg -k kernel -r new-initrd.img
         if [ ! -f new.img ]; then
           echo "❌ 重新打包镜像失败。"
           exit 1
