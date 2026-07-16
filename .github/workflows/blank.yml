@@ -11,17 +11,24 @@ on:
 jobs:
   build:
     if: github.event.repository.owner.id == github.event.sender.id
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     
     steps:
     - name: Check Out
-      uses: actions/checkout@main
+      uses: actions/checkout@v4
       
-    - name: Prepare the environment
+    - name: Prepare the environment (Python 2)
       run: |
         sudo apt update
-        sudo apt -y install python python3 python-pip python3-pip cpio wget
-        pip3 install twrpdtgen
+        # 安装 Python 2.7 和必要工具
+        sudo apt -y install python2.7 python2.7-dev cpio wget aria2 curl
+        # 安装 pip for Python 2.7
+        curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py
+        python2.7 get-pip.py
+        # 建立 python2 命令的软链接
+        sudo ln -sf /usr/bin/python2.7 /usr/bin/python2
+        # 使用 Python 2 的 pip 安装 twrpdtgen
+        pip2 install twrpdtgen
         mkdir dt
       
     - name: Download boot or recovery img
@@ -29,12 +36,15 @@ jobs:
         aria2c "${{ github.event.inputs.IMG_URL }}"
         ls
       
-    - name: Start build
+    - name: Start build (with Python 2)
       run: |
-        python3 -m twrpdtgen -o dt/ *.img
+        img_file=$(ls *.img | head -1)
+        python2 -m twrpdtgen -o dt/ "$img_file"
+        
     - name: ZIP device tree
       run: |
         zip -r DeviceTree.zip ./dt
+        
     - name: Upload to Release
       uses: softprops/action-gh-release@v1
       with:
