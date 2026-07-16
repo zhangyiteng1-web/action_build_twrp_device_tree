@@ -11,23 +11,23 @@ on:
 jobs:
   build:
     if: github.event.repository.owner.id == github.event.sender.id
-    runs-on: ubuntu-latest
-    container: ubuntu:20.04   # 使用原生 Python 2 环境
-    
+    runs-on: ubuntu-latest          # 只负责提供容器环境
+    container: ubuntu:20.04         # 使用 Docker 里的 Ubuntu 20.04，自带 Python 2
+
     steps:
     - name: Check Out
-      uses: actions/checkout@v4
+      uses: actions/checkout@main
       
-    - name: Prepare the environment (Python 2)
+    - name: Prepare the environment
       run: |
-        # 容器默认 root，无需 sudo
         apt update
-        DEBIAN_FRONTEND=noninteractive apt -y install \
-          python2 python python2-pip python-pip cpio wget aria2 curl git
-        
-        # 使用 Python 2 的 pip 安装 twrpdtgen（此时旧版可用）
+        # 容器内默认 root，无需 sudo；安装 python2.7、pip2 和相关工具
+        apt -y install python2.7 curl cpio wget aria2
+        # 手动安装 pip2（因为 apt 里的 python-pip 已不可用）
+        curl -sS https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py
+        python2.7 get-pip.py
+        # 用 pip2 安装 twrpdtgen
         pip2 install twrpdtgen
-        
         mkdir dt
       
     - name: Download boot or recovery img
@@ -35,11 +35,10 @@ jobs:
         aria2c "${{ github.event.inputs.IMG_URL }}"
         ls
       
-    - name: Start build (force Python 2)
+    - name: Start build
       run: |
-        img_file=$(ls *.img | head -1)
-        # 明确调用 python2 运行
-        python2 -m twrpdtgen -o dt/ "$img_file"
+        # 使用 python2.7 运行（保持和原脚本一样的调用方式，只是指定了 python 版本）
+        python2.7 -m twrpdtgen -o dt/ *.img
         
     - name: ZIP device tree
       run: |
