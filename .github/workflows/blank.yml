@@ -4,40 +4,70 @@ on:
   workflow_dispatch:
     inputs:
       IMG_URL:    
-        description: 'IMG_URL'
+        description: 'IMG_URL (recovery.img 或带 recovery 的 boot.img)'
         required: true
         default: ''
 
 jobs:
   build:
     if: github.event.repository.owner.id == github.event.sender.id
-    runs-on: ubuntu-22.04   # 改用当前长期支持的 22.04
-    
+    runs-on: ubuntu-22.04
+
     steps:
     - name: Check Out
       uses: actions/checkout@main
-      
+
     - name: Prepare the environment
       run: |
         sudo apt update
-        sudo apt -y install python3 python3-pip cpio wget aria2  # 增加 aria2
+        sudo apt -y install python3 python3-pip cpio wget aria2 abootimg
         pip3 install twrpdtgen
         mkdir dt
-      
+
     - name: Download boot or recovery img
       run: |
         aria2c "${{ github.event.inputs.IMG_URL }}"
-        echo "DOWNLOADED_FILE=$(ls *.img | head -n1)" >> $GITHUB_ENV   # 保存文件名供后续使用
+        echo "DOWNLOADED_FILE=$(ls *.img 2>/dev/null | head -n1)" >> $GITHUB_ENV
         ls -l
-      
+
+    - name: Inspect image (diagnostic)
+      run: |
+        IMG="${{ env.DOWNLOADED_FILE }}"
+        if [ -z "$IMG" ]; then
+          echo "❌ No .img file found. Please check your URL."
+          exit 1
+        fi
+        echo "🔍 Inspecting $IMG ..."
+        file "$IMG"
+        # 使用 abootimg 解包 kernel 和 ramdisk
+        abootimg -x "$IMG" || echo "⚠️ abootimg failed to extract, but we'll continue."
+        if [ -f initramfs.img ]; then
+          mkdir ramdisk
+          cd ramdisk
+          gunzip -c ../initramfs.img | cpio -i 2>/dev/null || true
+          cd ..
+          echo "📂 Ramdisk contents (first 20 files):"
+          find ramdisk -type f | head -20
+          echo "--- Build.prop search ---"
+          find ramdisk -name "build.prop" -exec grep -H -E "ro.product.(system.)?device|ro.product.name|ro.product.model" {} \; || echo "❌ No build.prop with required properties found."
+        else
+          echo "⚠️ No initramfs.img extracted – this may not be a standard boot/recovery image."
+        fi
+        echo "--- End of inspection ---"
+
     - name: Start build
       run: |
+        if [ -z "${{ env.DOWNLOADED_FILE }}" ]; then
+          echo "❌ No image file available to process."
+          exit 1
+        fi
+        echo "▶️ Generating device tree using ${{ env.DOWNLOADED_FILE }}"
         python3 -m twrpdtgen -o dt/ "${{ env.DOWNLOADED_FILE }}"
-        
+
     - name: ZIP device tree
       run: |
         zip -r DeviceTree.zip ./dt
-        
+
     - name: Upload to Release
       uses: softprops/action-gh-release@v1
       with:
