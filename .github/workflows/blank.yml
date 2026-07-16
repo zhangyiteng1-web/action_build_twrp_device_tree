@@ -11,7 +11,8 @@ on:
 jobs:
   build:
     if: github.event.repository.owner.id == github.event.sender.id
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    container: ubuntu:20.04   # 使用原生 Python 2 环境
     
     steps:
     - name: Check Out
@@ -19,16 +20,14 @@ jobs:
       
     - name: Prepare the environment (Python 2)
       run: |
-        sudo apt update
-        # 安装 Python 2.7 和必要工具
-        sudo apt -y install python2.7 python2.7-dev cpio wget aria2 curl
-        # 安装 pip for Python 2.7
-        curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py
-        python2.7 get-pip.py
-        # 建立 python2 命令的软链接
-        sudo ln -sf /usr/bin/python2.7 /usr/bin/python2
-        # 使用 Python 2 的 pip 安装 twrpdtgen
+        # 容器默认 root，无需 sudo
+        apt update
+        DEBIAN_FRONTEND=noninteractive apt -y install \
+          python2 python python2-pip python-pip cpio wget aria2 curl git
+        
+        # 使用 Python 2 的 pip 安装 twrpdtgen（此时旧版可用）
         pip2 install twrpdtgen
+        
         mkdir dt
       
     - name: Download boot or recovery img
@@ -36,13 +35,15 @@ jobs:
         aria2c "${{ github.event.inputs.IMG_URL }}"
         ls
       
-    - name: Start build (with Python 2)
+    - name: Start build (force Python 2)
       run: |
         img_file=$(ls *.img | head -1)
+        # 明确调用 python2 运行
         python2 -m twrpdtgen -o dt/ "$img_file"
         
     - name: ZIP device tree
       run: |
+        apt -y install zip
         zip -r DeviceTree.zip ./dt
         
     - name: Upload to Release
