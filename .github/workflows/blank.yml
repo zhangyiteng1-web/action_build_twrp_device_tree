@@ -12,17 +12,16 @@ jobs:
   build:
     if: github.event.repository.owner.id == github.event.sender.id
     runs-on: ubuntu-latest
-    container: ubuntu:18.04      # 18.04 完美支持 Python 2，且 pip 源中有兼容旧包
-
+    container: ubuntu:18.04          # Python 2 原生支持，twrpdtgen 旧版可直接安装
+    
     steps:
     - name: Check Out
-      uses: actions/checkout@main
+      uses: actions/checkout@v2      # 使用 v2 避免 glibc 2.28 依赖问题
       
     - name: Prepare the environment
       run: |
         apt update
         apt -y install python python-pip cpio wget aria2 git zip
-        # 安装支持 Python 2 的指定版本
         pip2 install twrpdtgen==1.1.0
         mkdir dt
       
