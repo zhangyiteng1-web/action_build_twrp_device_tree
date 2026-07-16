@@ -11,28 +11,28 @@ on:
 jobs:
   build:
     if: github.event.repository.owner.id == github.event.sender.id
-    runs-on: ubuntu-latest
-    container: ubuntu:18.04          # Python 2 原生支持，twrpdtgen 旧版可直接安装
+    runs-on: ubuntu-22.04   # 改用当前长期支持的 22.04
     
     steps:
     - name: Check Out
-      uses: actions/checkout@v2      # 使用 v2 避免 glibc 2.28 依赖问题
+      uses: actions/checkout@main
       
     - name: Prepare the environment
       run: |
-        apt update
-        apt -y install python python-pip cpio wget aria2 git zip
-        pip2 install twrpdtgen==1.1.0
+        sudo apt update
+        sudo apt -y install python3 python3-pip cpio wget aria2  # 增加 aria2
+        pip3 install twrpdtgen
         mkdir dt
       
     - name: Download boot or recovery img
       run: |
         aria2c "${{ github.event.inputs.IMG_URL }}"
-        ls
+        echo "DOWNLOADED_FILE=$(ls *.img | head -n1)" >> $GITHUB_ENV   # 保存文件名供后续使用
+        ls -l
       
     - name: Start build
       run: |
-        python2 -m twrpdtgen -o dt/ *.img
+        python3 -m twrpdtgen -o dt/ "${{ env.DOWNLOADED_FILE }}"
         
     - name: ZIP device tree
       run: |
@@ -41,8 +41,7 @@ jobs:
     - name: Upload to Release
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          ./DeviceTree.zip
+        files: ./DeviceTree.zip
         name: TWRP_Device_Tree-${{ github.run_id }}
         tag_name: ${{ github.run_id }}
         body: DeviceTree for twrp
